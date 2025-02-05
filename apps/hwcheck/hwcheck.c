@@ -195,10 +195,92 @@ unsigned iic_recv(unsigned addr, unsigned reg, unsigned nbytes){
   return value;
 }
 
+//0001100   AD5677        16-chan. 16-bit DAC for VDDA setup                
+//0001101   AD5677        16-chan. 16-bit DAC for VDDD setup                
+//0010000   PAC1944       4-chan. Power Monitor VDDA+VDDD Tile1 + Tile2     
+//0010001   PAC1944       4-chan. Power Monitor VDDA+VDDD Tile3 + Tile4     
+//0010010   PAC1944       4-chan. Power Monitor VDDA+VDDD Tile5 + Tile6     
+//0010011   PAC1944       4-chan. Power Monitor VDDA+VDDD Tile7 + Tile8     
+//0010100   PAC1944       4-chan. Power Monitor VDDA+VDDD Tile9 + Tile10    
+//0010101   PAC1944       4-chan. Power Monitor T3V0 + D3V6 + D3V3          
+//1001100   MAX14661      16:2 Positive-Side MUX                            
+//1001101   MAX14661      16:2 Negative-Side MUX                            
+//1010000   SFP           SFP Module for Timing (primary addr.)             
+//1010001   SFP           SFP Module for Timing (secondary addr.)           
+//1100000   ADN2814       Clock & Data Recovery (CDR) for Timing  
+
+#define ADDR_BAD          0b0001110  // Non-existent address
+#define ADDR_DAC_VDDA     0b0001100  // AD5677 DAC for VDDA TILES 1-10
+#define ADDR_DAC_VDDD     0b0001101  // AD5677 DAC for VDDD TILES 1-10
+#define ADDR_ADC_TILES    0b0010000  // PAC1944 for Tiles 1+2 (ADDR+0), Tiles 3+4 (ADDR+1), ...
+#define ADDR_ADC_BOARD    0b0010101  // PAC 1944 for Board Power and Temp
+#define ADDR_MUX_P        0b1001100  // MAX14661 for TILES 1-8
+#define ADDR_MUX_N        0b1001101  // MAX14661 for TILES 1-8
+
 void check_iic(){
+  //unsigned val;
+  
+  xil_printf("CHECK I2C:  sending NO OP to non-existent device... should fail:\r\n");
+  iic_set(ADDR_BAD, 0, 0, 0); 
+
+  xil_printf("CHECK I2C:  sending refesh to non-existent device... should fail:\r\n");
+  iic_send(ADDR_BAD, 0); 
+  
+  xil_printf("CHECK I2C:  sending NO OP to DAC VDDA \r\n");
+  iic_set(ADDR_DAC_VDDA, 0, 0, 0);
+
+  xil_printf("CHECK I2C:  sending NO OP to DAC VDDD \r\n");
+  iic_set(ADDR_DAC_VDDD, 0, 0, 0); 
+
+  xil_printf("CHECK I2C:  setting MUX to TILE 1\r\n");
+  //iic_byte(ADDR_MUX_P, 0x14, 0xa); // short to N
+  iic_byte(ADDR_MUX_P, 0x14, 0xb);
+  iic_byte(ADDR_MUX_P, 0x15, 0xe); 
+  xil_printf("CHECK I2C:  setting MUX to TILE 2\r\n");
+  //iic_byte(ADDR_MUX_N, 0x14, 0xa); // short to P
+  iic_byte(ADDR_MUX_N, 0x14, 0xb);
+  iic_byte(ADDR_MUX_N, 0x15, 0xe);
+
+  xil_printf("CHECK I2C:  sending refesh to ADCs:\r\n");
+  xil_printf("CHECK I2C:  TILES 1+2:\r\n");
+  iic_send(ADDR_ADC_TILES+0, 0);
+  xil_printf("CHECK I2C:  TILES 3+4:\r\n");
+  iic_send(ADDR_ADC_TILES+1, 0);
+  xil_printf("CHECK I2C:  TILES 5+6:\r\n");
+  iic_send(ADDR_ADC_TILES+2, 0);
+  xil_printf("CHECK I2C:  TILES 7+8:\r\n");
+  iic_send(ADDR_ADC_TILES+3, 0);
+  xil_printf("CHECK I2C:  TILES 9+10:\r\n");
+  iic_send(ADDR_ADC_TILES+4, 0);
+  xil_printf("CHECK I2C:  BOARD:\r\n");
+  iic_send(ADDR_ADC_BOARD,   0); 
 }
 
+void set_voltages(unsigned vdda_up, unsigned vdda_dn,
+		  unsigned vddd_up, unsigned vddd_dn){
+  // Test inputs... setting to VDDA/VDDD for now:
+  iic_set(ADDR_DAC_VDDA, 0b00111010, vdda_up, vdda_dn);
+  //iic_set(ADDR_DAC_VDDD, 0b00111010, vddd_up, vddd_dn);
+  iic_set(ADDR_DAC_VDDD, 0b00111010, 0, 0);
+}
 
+void set_voltages_zero(){
+  set_voltages(0x00, 0x00, 0x00, 0x00);
+}
+
+void set_voltages_full(){
+  set_voltages(0xFF, 0xFF, 0xFF, 0xFF);
+}
+
+void set_mux_dac(){
+  //  two muxes, one for positive one for negative of differential signal
+  //  register 0x14 is CMDA switch, 11 is for DAC input
+  //  register 0x15 is CMDA switch, 11 is for DAC input
+  iic_byte(ADDR_MUX_P, 0x14, 11);
+  iic_byte(ADDR_MUX_P, 0x15, 11);
+  iic_byte(ADDR_MUX_N, 0x14, 11);
+  iic_byte(ADDR_MUX_N, 0x15, 11);  
+}
 
 // these are the addresses for the interfaces as read off from the address editor of the block diagram in vivado
 #define ADDR_AXIL_REGS  0x40000000
@@ -239,7 +321,11 @@ int main(){
     xil_printf("(1) blink LEDS \r\n");
     xil_printf("(2) read registers \r\n");
     xil_printf("(3) read/write registers \r\n");
-
+    xil_printf("(4) check iic \r\n");
+    xil_printf("(5) set P voltage zero \r\n");
+    xil_printf("(6) set P voltage full \r\n");
+    xil_printf("(7) set mux to DAC \r\n");
+    
     unsigned char c=inbyte();
     xil_printf("pressed:  %c\n\r", c);
     switch(c){
@@ -252,9 +338,25 @@ int main(){
     case '3':
       check_reg_rw();
       break;
+    case '4':
+      check_iic();
+      break;
+    case '5':
+      set_voltages_zero();
+      break;
+    case '6':
+      set_voltages_full();
+      break;
+    case '7':
+      set_mux_dac();
+      break;
     default:
       xil_printf("invalid selection...\n\r");
     }
   }
   return 0;
 }
+
+
+
+
