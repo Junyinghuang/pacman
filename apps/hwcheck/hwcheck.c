@@ -8,6 +8,7 @@
 #include "xiicps.h"
 
 // MIO pinout:
+#define ADC_SLEEP 0
 #define LEDA 7
 #define LED0 12
 #define LED1 13
@@ -32,6 +33,10 @@ int init_gpiops(){
     xil_printf("FAILED.\r\n");
     return XST_FAILURE;
   }
+  XGpioPs_SetDirectionPin(&gpiops, ADC_SLEEP, 1);
+  XGpioPs_SetOutputEnablePin(&gpiops, ADC_SLEEP, 1);
+  XGpioPs_WritePin(&gpiops, ADC_SLEEP, 0x1);
+  
   XGpioPs_SetDirectionPin(&gpiops, LEDA, 1);
   XGpioPs_SetOutputEnablePin(&gpiops, LEDA, 1);
   XGpioPs_WritePin(&gpiops, LEDA, 0x0);
@@ -256,12 +261,16 @@ void check_iic(){
   iic_send(ADDR_ADC_BOARD,   0); 
 }
 
+
+// VDDA DAC is used for postive  end of differential test DAC output
+// VDDD DAC is used for negative end of differntial test DAC output
+
 void set_voltages(unsigned vdda_up, unsigned vdda_dn,
 		  unsigned vddd_up, unsigned vddd_dn){
   // Test inputs... setting to VDDA/VDDD for now:
   iic_set(ADDR_DAC_VDDA, 0b00111010, vdda_up, vdda_dn);
   //iic_set(ADDR_DAC_VDDD, 0b00111010, vddd_up, vddd_dn);
-  iic_set(ADDR_DAC_VDDD, 0b00111010, 0, 0);
+  iic_set(ADDR_DAC_VDDD, 0b00111010, vddd_up, vddd_dn);
 }
 
 void set_voltages_zero(){
@@ -271,6 +280,7 @@ void set_voltages_zero(){
 void set_voltages_full(){
   set_voltages(0xFF, 0xFF, 0xFF, 0xFF);
 }
+
 
 void set_mux_dac(){
   //  two muxes, one for positive one for negative of differential signal
@@ -306,6 +316,40 @@ void check_reg_rw(){
   count = (count + 1)&0xF;
 }
 
+void test_adc(){
+  xil_printf("test ADCs  \r\n");
+  set_mux_dac();
+  XGpioPs_WritePin(&gpiops, ADC_SLEEP, 0x0);
+
+  xil_printf("Set Voltage Half Scale  \r\n");  
+  set_voltages(0x7F, 0x7F, 0x0, 0x0);
+  usleep(1000);
+  xil_printf("ADC REGISTER -- 0x%x  \r\n", Xil_In32(ADDR_AXIL_REGS+0xF108));  
+
+  xil_printf("Set Voltage Quarter Scale  \r\n");  
+  set_voltages(0x3F, 0x3F, 0x00, 0x00);
+  usleep(1000);
+  xil_printf("ADC REGISTER -- 0x%x  \r\n", Xil_In32(ADDR_AXIL_REGS+0xF108));  
+  
+  xil_printf("Set Voltage Zero  \r\n");  
+  set_voltages(0x00, 0x00, 0x00, 0x00);
+  usleep(1000);
+  xil_printf("ADC REGISTER -- 0x%x  \r\n", Xil_In32(ADDR_AXIL_REGS+0xF108));
+
+  xil_printf("Set Voltage Negative Quarter Scale  \r\n");  
+  set_voltages(0x00, 0x00, 0x3F, 0x3F);
+  usleep(1000);
+  xil_printf("ADC REGISTER -- 0x%x  \r\n", Xil_In32(ADDR_AXIL_REGS+0xF108));  
+
+  xil_printf("Set Voltage Negative Half Scale  \r\n");  
+  set_voltages(0x00, 0x00, 0x7F, 0x7F);
+  usleep(1000);
+  xil_printf("ADC REGISTER -- 0x%x  \r\n", Xil_In32(ADDR_AXIL_REGS+0xF108));  
+  
+  XGpioPs_WritePin(&gpiops, ADC_SLEEP, 0x1);
+  xil_printf("done testing ADCs  \r\n");
+}
+
 int main(){
   xil_printf("SANITY NUMBER:  1\r\n");
   xil_printf("Trenz Eval Board Hardware Testing (Development)\r\n");
@@ -325,6 +369,7 @@ int main(){
     xil_printf("(5) set P voltage zero \r\n");
     xil_printf("(6) set P voltage full \r\n");
     xil_printf("(7) set mux to DAC \r\n");
+    xil_printf("(8) test ADC  \r\n");
     
     unsigned char c=inbyte();
     xil_printf("pressed:  %c\n\r", c);
@@ -349,6 +394,9 @@ int main(){
       break;
     case '7':
       set_mux_dac();
+      break;
+    case '8':
+      test_adc();
       break;
     default:
       xil_printf("invalid selection...\n\r");
